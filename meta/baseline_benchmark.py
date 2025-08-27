@@ -36,6 +36,8 @@ import hashlib
 import urllib.request
 import tempfile
 import shutil
+import sys
+import numpy as np
 
 try:
     import psutil
@@ -56,9 +58,38 @@ except ImportError:
 
 try:
     import onnx
+    from onnx import TensorProto
     ONNX_AVAILABLE = True
 except ImportError:
     ONNX_AVAILABLE = False
+    logging.warning("ONNX not available. ONNX models will be skipped.")
+
+# Monkey-patch for older TVM versions that require onnx.mapping, which was
+# removed in onnx>=1.9.0. This avoids forcing a package downgrade.
+if ONNX_AVAILABLE:
+    try:
+        from onnx import mapping
+    except ImportError:
+        if 'onnx.mapping' not in sys.modules:
+            class MockOnnxMapping:
+                TENSOR_TYPE_TO_NP_TYPE = {
+                    TensorProto.FLOAT: np.dtype("float32"),
+                    TensorProto.UINT8: np.dtype("uint8"),
+                    TensorProto.INT8: np.dtype("int8"),
+                    TensorProto.UINT16: np.dtype("uint16"),
+                    TensorProto.INT16: np.dtype("int16"),
+                    TensorProto.INT32: np.dtype("int32"),
+                    TensorProto.INT64: np.dtype("int64"),
+                    TensorProto.STRING: np.dtype("object"),
+                    TensorProto.BOOL: np.dtype("bool"),
+                    TensorProto.FLOAT16: np.dtype("float16"),
+                    TensorProto.DOUBLE: np.dtype("float64"),
+                    TensorProto.UINT32: np.dtype("uint32"),
+                    TensorProto.UINT64: np.dtype("uint64"),
+                    TensorProto.COMPLEX64: np.dtype("complex64"),
+                    TensorProto.COMPLEX128: np.dtype("complex128"),
+                }
+            sys.modules['onnx.mapping'] = MockOnnxMapping()
 
 
 @dataclass
@@ -164,8 +195,6 @@ class BaselineBenchmark:
         self.logger.info(f"Detected hardware: {self.hardware_config}")
         
         # Initialize tuning context if enabled
-        if self.enable_tuning and TVM_AVAILABLE:
-            self._setup_tuning_context()
         
     def _detect_hardware(self) -> HardwareConfig:
         """Detect hardware configuration"""
@@ -199,33 +228,6 @@ class BaselineBenchmark:
             gpu_model=gpu_model
         )
         
-    def _setup_tuning_context(self):
-        """Setup Meta Schedule tuning context"""
-        try:
-            self.tuning_context = ms.TuneContext(
-                mod=None,  # Will be set per workload
-                target=self.target,
-                work_dir=os.path.join(self.output_dir, "tuning_logs"),
-                num_threads=1,
-                builder=ms.LocalBuilder(timeout_sec=self.builder_timeout),
-                runner=ms.LocalRunner(timeout_sec=self.runner_timeout),
-                task_scheduler=ms.TaskScheduler(
-                    tasks=[],  # Will be populated per workload
-                    task_weights=[],
-                    builder=ms.LocalBuilder(timeout_sec=self.builder_timeout),
-                    runner=ms.LocalRunner(timeout_sec=self.runner_timeout),
-                    database=ms.JSONDatabase(
-                        path_workload=os.path.join(self.output_dir, "tuning_logs", "workloads.json"),
-                        path_tuning_record=os.path.join(self.output_dir, "tuning_logs", "records.json")
-                    ),
-                    max_trials=100,  # Relatively small for quick evaluation
-                )
-            )
-            self.logger.info("Meta Schedule tuning context initialized")
-        except Exception as e:
-            self.logger.warning(f"Failed to setup tuning context: {e}")
-            self.enable_tuning = False
-    
     def _download_model(self, model_url: str, model_name: str) -> str:
         """Download and cache model"""
         model_hash = hashlib.md5(model_url.encode()).hexdigest()[:8]
@@ -259,7 +261,7 @@ class BaselineBenchmark:
             ModelBenchmark(
                 name="resnet18_onnx",
                 description="ResNet-18 ONNX Model",
-                model_url="https://github.com/onnx/models/raw/main/vision/classification/resnet/model/resnet18-v1-7.onnx",
+                model_url="https://github.com/onnx/models/raw/refs/heads/main/validated/vision/classification/resnet/model/resnet18-v1-7.onnx",
                 model_format="onnx",
                 input_shapes={"data": [1, 3, 224, 224]},
                 category="vision"
@@ -267,7 +269,7 @@ class BaselineBenchmark:
             ModelBenchmark(
                 name="mobilenetv2_onnx", 
                 description="MobileNetV2 ONNX Model",
-                model_url="https://github.com/onnx/models/raw/main/vision/classification/mobilenet/model/mobilenetv2-7.onnx",
+                model_url="https://github.com/onnx/models/raw/refs/heads/main/validated/vision/classification/mobilenet/model/mobilenetv2-7.onnx",
                 model_format="onnx",
                 input_shapes={"data": [1, 3, 224, 224]}, 
                 category="vision"
@@ -275,9 +277,9 @@ class BaselineBenchmark:
             ModelBenchmark(
                 name="squeezenet_onnx",
                 description="SqueezeNet ONNX Model", 
-                model_url="https://github.com/onnx/models/raw/main/vision/classification/squeezenet/model/squeezenet1.0-7.onnx",
+                model_url="https://github.com/onnx/models/raw/refs/heads/main/validated/vision/classification/squeezenet/model/squeezenet1.0-7.onnx",
                 model_format="onnx",
-                input_shapes={"data": [1, 3, 224, 224]},
+                input_shapes={"data_0": [1, 3, 224, 224]},
                 category="vision"
             )
         ]
@@ -285,9 +287,13 @@ class BaselineBenchmark:
         
     def _load_onnx_model(self, model_path: str, input_shapes: Dict[str, List[int]]):
         """Load ONNX model and convert to TVM Relay"""
-        if not TVM_AVAILABLE or not ONNX_AVAILABLE:
-            self.logger.warning("TVM or ONNX not available, skipping model loading")
-            return None
+        if not TVM_AVAILABLE:
+            self.logger.warning("TVM is not available, skipping model loading. Please install TVM to run benchmarks.")
+            return None, None
+        
+        if not ONNX_AVAILABLE:
+            self.logger.warning("ONNX is not available, skipping model loading. Please install `onnx` and `onnxoptimizer`.")
+            return None, None
             
         try:
             # Load ONNX model
@@ -343,7 +349,7 @@ class BaselineBenchmark:
     def _create_tvm_workload(self, workload: BenchmarkWorkload):
         """Create TVM IRModule for the workload"""
         if not TVM_AVAILABLE:
-            self.logger.warning("TVM not available, skipping workload creation")
+            self.logger.warning("TVM not available, skipping workload creation. Please install TVM to run benchmarks.")
             return None, None
             
         if workload.workload_type == "matmul":
@@ -437,7 +443,10 @@ class BaselineBenchmark:
         try:
             # Build with default schedule (baseline)
             with tvm.transform.PassContext(opt_level=3):
-                lib = tvm.build(mod, target=self.target, params=params)
+                if params is not None:
+                    lib = relay.build(mod, target=self.target, params=params)
+                else:
+                    lib = tvm.build(mod, target=self.target)
                 
             # Create random input data
             import numpy as np
@@ -472,12 +481,32 @@ class BaselineBenchmark:
                          for _ in range(3)]
                 
             # Measure performance
-            timer = lib.time_evaluator(lib.entry_name, dev, 
-                                     number=exec_config.number, 
-                                     repeat=exec_config.repeat,
-                                     min_repeat_ms=exec_config.min_repeat_ms)
-            
-            results = timer(*inputs).results
+            dev = tvm.device(str(self.target), 0)
+            if params is not None:
+                from tvm.contrib import graph_executor
+                module = graph_executor.GraphModule(lib["default"](dev))
+                models = self._get_end_to_end_models()
+                model_def = next((m for m in models if m.name == workload.name), None)
+                if model_def:
+                    for i, (name, shape) in enumerate(model_def.input_shapes.items()):
+                        module.set_input(name, tvm.nd.array(np.random.rand(*shape).astype(workload.data_type), dev))
+                
+                # Manually time execution
+                times = []
+                for _ in range(exec_config.repeat):
+                    start_time = time.time()
+                    for _ in range(exec_config.number):
+                        module.run()
+                    dev.sync()
+                    end_time = time.time()
+                    times.append((end_time - start_time) / exec_config.number)
+                results = times
+            else:
+                timer = lib.time_evaluator(lib.entry_name, dev,
+                                         number=exec_config.number,
+                                         repeat=exec_config.repeat,
+                                         min_repeat_ms=exec_config.min_repeat_ms)
+                results = timer(*inputs).results
             runtime_ms_mean = float(np.mean(results)) * 1000
             runtime_ms_std = float(np.std(results)) * 1000
             
@@ -511,9 +540,12 @@ class BaselineBenchmark:
             
         try:
             self.logger.info(f"Running Meta Schedule tuning for {workload.name}")
+
+            tuning_logs_dir = os.path.join(self.output_dir, "tuning_logs")
+            os.makedirs(tuning_logs_dir, exist_ok=True)
             
             # Create tuning context for this workload
-            database = ms.JSONDatabase(
+            database = ms.database.JSONDatabase(
                 path_workload=os.path.join(self.output_dir, "tuning_logs", f"{workload.name}_workloads.json"),
                 path_tuning_record=os.path.join(self.output_dir, "tuning_logs", f"{workload.name}_records.json")
             )
@@ -522,7 +554,6 @@ class BaselineBenchmark:
             with ms.TuneContext(
                 mod=mod,
                 target=self.target,
-                work_dir=os.path.join(self.output_dir, "tuning_logs", workload.name),
                 num_threads=1,
             ) as ctx:
                 # Extract tasks
@@ -545,50 +576,53 @@ class BaselineBenchmark:
                 # Run tuning
                 task_scheduler.tune()
                 
-                # Get the best schedule
-                sch = ms.schedule.Schedule(mod)
-                lib = ms.apply_best_schedule(sch, database)
-                
-                if lib is None:
-                    self.logger.warning(f"No tuned schedule found for {workload.name}")
-                    return None
+                # Build with the tuned database
+                lib = ms.relay_integration.compile_relay(
+                    database, mod, self.target, params=params)
                 
                 # Measure tuned performance
-                import numpy as np
                 dev = tvm.device(str(self.target), 0)
-                
-                # Create inputs (same logic as baseline)
-                inputs = []
                 if workload.workload_type == "model":
+                    from tvm.contrib import graph_executor
+                    module = graph_executor.GraphModule(lib["default"](dev))
                     models = self._get_end_to_end_models()
                     model_def = next((m for m in models if m.name == workload.name), None)
                     if model_def:
-                        for input_name, shape in model_def.input_shapes.items():
-                            inputs.append(tvm.nd.array(
-                                np.random.rand(*shape).astype(workload.data_type), dev))
-                    else:
-                        inputs.append(tvm.nd.array(
-                            np.random.rand(*workload.input_shapes[0]).astype(workload.data_type), dev))
-                elif workload.workload_type == "matmul":
-                    shapes = workload.input_shapes
-                    inputs = [
-                        tvm.nd.array(np.random.rand(*shapes[0]).astype(workload.data_type), dev),
-                        tvm.nd.array(np.random.rand(*shapes[1]).astype(workload.data_type), dev)
-                    ]
-                    output_shape = (shapes[0][0], shapes[1][1])
-                    output = tvm.nd.array(np.zeros(output_shape).astype(workload.data_type), dev)
-                    inputs.append(output)
+                        for i, (name, shape) in enumerate(model_def.input_shapes.items()):
+                            module.set_input(name, tvm.nd.array(np.random.rand(*shape).astype(workload.data_type), dev))
+
+                    # Manually time execution
+                    times = []
+                    for _ in range(exec_config.repeat):
+                        start_time = time.time()
+                        for _ in range(exec_config.number):
+                            module.run()
+                        dev.sync()
+                        end_time = time.time()
+                        times.append((end_time - start_time) / exec_config.number)
+                    results = times
                 else:
-                    inputs = [tvm.nd.array(np.random.rand(100).astype(workload.data_type), dev) 
-                             for _ in range(3)]
-                
-                # Measure tuned performance
-                timer = lib.time_evaluator(lib.entry_name, dev,
-                                         number=exec_config.number,
-                                         repeat=exec_config.repeat,
-                                         min_repeat_ms=exec_config.min_repeat_ms)
-                
-                results = timer(*inputs).results
+                    # Create inputs (same logic as baseline)
+                    inputs = []
+                    if workload.workload_type == "matmul":
+                        shapes = workload.input_shapes
+                        inputs = [
+                            tvm.nd.array(np.random.rand(*shapes[0]).astype(workload.data_type), dev),
+                            tvm.nd.array(np.random.rand(*shapes[1]).astype(workload.data_type), dev)
+                        ]
+                        output_shape = (shapes[0][0], shapes[1][1])
+                        output = tvm.nd.array(np.zeros(output_shape).astype(workload.data_type), dev)
+                        inputs.append(output)
+                    else:
+                        inputs = [tvm.nd.array(np.random.rand(100).astype(workload.data_type), dev)
+                                 for _ in range(3)]
+
+                    timer = lib.time_evaluator(lib.entry_name, dev,
+                                             number=exec_config.number,
+                                             repeat=exec_config.repeat,
+                                             min_repeat_ms=exec_config.min_repeat_ms)
+
+                    results = timer(*inputs).results
                 runtime_ms_mean = float(np.mean(results)) * 1000
                 runtime_ms_std = float(np.std(results)) * 1000
                 
@@ -640,7 +674,7 @@ class BaselineBenchmark:
             # Create TVM workload
             try:
                 mod_and_params = self._create_tvm_workload(workload)
-                if mod_and_params is None:
+                if mod_and_params is None or mod_and_params[0] is None:
                     self.logger.warning(f"Skipping {workload.name} - failed to create workload")
                     continue
             except Exception as e:
@@ -1021,7 +1055,7 @@ class BaselineBenchmark:
 def parse_args():
     """Parse command line arguments"""
     parser = argparse.ArgumentParser(description="TVM Meta Scheduler End-to-End Benchmark")
-    parser.add_argument("--target", type=str, default="llvm -mcpu=core-avx2",
+    parser.add_argument("--target", type=str, default="llvm",
                        help="Target device for benchmarking")
     parser.add_argument("--output-dir", type=str, default="baseline_benchmark_results",
                        help="Output directory for results")
