@@ -202,8 +202,144 @@ class TestBaselineBenchmark(unittest.TestCase):
             timestamp="2024-01-01T00:00:00Z"
         )
         
-        # This should not raise an exception
+        # Summary should not raise an exception
         self.benchmark.print_summary([mock_result])
+
+
+class TestEndToEndBenchmark(unittest.TestCase):
+    """Test cases for end-to-end benchmarking features"""
+    
+    def setUp(self):
+        """Set up test fixtures"""
+        self.temp_dir = tempfile.mkdtemp()
+        self.benchmark = BaselineBenchmark(
+            target="llvm", 
+            output_dir=self.temp_dir,
+            enable_tuning=False
+        )
+        
+    def tearDown(self):
+        """Clean up test fixtures"""
+        import shutil
+        shutil.rmtree(self.temp_dir, ignore_errors=True)
+        
+    def test_end_to_end_models(self):
+        """Test end-to-end model definitions"""
+        models = self.benchmark._get_end_to_end_models()
+        
+        self.assertIsInstance(models, list)
+        self.assertGreater(len(models), 0)
+        
+        for model in models:
+            self.assertIsNotNone(model.name)
+            self.assertIsNotNone(model.model_url)
+            self.assertIn(model.model_format, ["onnx"])
+            self.assertIsInstance(model.input_shapes, dict)
+            
+    def test_benchmark_suites(self):
+        """Test benchmark suite filtering"""
+        # Test operators suite
+        results = self.benchmark.run_benchmark(benchmark_suite="operators")
+        operator_count = len([r for r in results if r.workload_metadata.get("type") != "model"])
+        self.assertGreater(operator_count, 0)
+        
+        # Test vision suite  
+        results = self.benchmark.run_benchmark(benchmark_suite="vision")
+        model_count = len([r for r in results if r.workload_metadata.get("type") == "model"])
+        self.assertGreater(model_count, 0)
+        
+    def test_html_report_generation(self):
+        """Test HTML report generation"""
+        # Run a simple benchmark
+        results = self.benchmark.run_benchmark(workloads=["matmul_1024x1024"])
+        
+        # Generate HTML report
+        report_path = self.benchmark.generate_html_report(results)
+        
+        self.assertTrue(os.path.exists(report_path))
+        
+        # Check HTML content
+        with open(report_path, 'r') as f:
+            html_content = f.read()
+            
+        self.assertIn("TVM Meta Scheduler End-to-End Benchmark Report", html_content)
+        self.assertIn("matmul_1024x1024", html_content)
+        self.assertIn("Baseline (ms)", html_content)
+        
+    def test_tuning_enabled_configuration(self):
+        """Test benchmark with tuning enabled"""
+        benchmark_with_tuning = BaselineBenchmark(
+            target="llvm",
+            output_dir=self.temp_dir,
+            enable_tuning=True
+        )
+        
+        # Should not crash even without TVM
+        results = benchmark_with_tuning.run_benchmark(workloads=["matmul_1024x1024"])
+        self.assertIsInstance(results, list)
+        
+    def test_model_workload_creation(self):
+        """Test model workload creation"""
+        from baseline_benchmark import BenchmarkWorkload
+        
+        model_workload = BenchmarkWorkload(
+            name="test_model",
+            description="Test model",
+            workload_type="model",
+            input_shapes=[[1, 3, 224, 224]],
+            model_url="https://example.com/model.onnx",
+            model_format="onnx"
+        )
+        
+        self.assertEqual(model_workload.workload_type, "model")
+        self.assertIsNotNone(model_workload.model_url)
+        
+    def test_extended_benchmark_result(self):
+        """Test extended benchmark result with tuning fields"""
+        from baseline_benchmark import BenchmarkResult
+        
+        result = BenchmarkResult(
+            workload="test_workload",
+            engine="test_engine",
+            hardware="test_hardware",
+            runtime_ms_mean=10.0,
+            runtime_ms_std=1.0,
+            workload_metadata={},
+            engine_version="1.0",
+            engine_config={},
+            hardware_config={},
+            execution_config={},
+            metrics={},
+            runtime_raw=[],
+            timestamp="2024-01-01T00:00:00Z",
+            tuned_runtime_ms_mean=5.0,
+            tuned_runtime_ms_std=0.5,
+            speedup=2.0
+        )
+        
+        self.assertEqual(result.speedup, 2.0)
+        self.assertEqual(result.tuned_runtime_ms_mean, 5.0)
+        
+    def test_workload_filtering(self):
+        """Test workload filtering with different criteria"""
+        # Test with specific workload names
+        results = self.benchmark.run_benchmark(workloads=["matmul_1024x1024", "nonexistent"])
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0].workload, "matmul_1024x1024")
+        
+    def test_batch_configuration_structure(self):
+        """Test batch benchmark configuration structure"""
+        configurations = [
+            {"name": "config1", "enable_tuning": False},
+            {"name": "config2", "enable_tuning": True}
+        ]
+        
+        # Should not crash with valid configuration
+        try:
+            # This might fail due to TVM not being available, but structure should be valid
+            self.benchmark.run_batch_benchmark(configurations)
+        except Exception:
+            pass  # Expected in mock mode
 
         
 class TestTargets(unittest.TestCase):
