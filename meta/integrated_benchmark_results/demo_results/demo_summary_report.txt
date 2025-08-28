@@ -1,0 +1,12 @@
+Multi-Vendor ML Inference Benchmark Summary
+==================================================
+
+tensorrt: 204.9 samples/sec (NVIDIA)
+onnxruntime_cuda: 136.6 samples/sec (Microsoft)
+pytorch_cuda: 109.2 samples/sec (Meta)
+tvm_llvm_tuned: 58.5 samples/sec (Apache)
+openvino_cpu: 46.8 samples/sec (Intel)
+tvm_llvm: 40.9 samples/sec (Apache)
+onnxruntime_cpu: 36.4 samples/sec (Microsoft)
+tensorflow_cpu: 34.1 samples/sec (Google)
+pytorch_cpu: 31.4 samples/sec (Meta)
