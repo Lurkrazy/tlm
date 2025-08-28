@@ -1,0 +1,151 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Comprehensive ML Inference Benchmark Report</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 40px; }
+        .header { text-align: center; margin-bottom: 30px; }
+        .section { margin-bottom: 40px; }
+        .summary { background-color: #f8f9fa; padding: 20px; border-radius: 5px; margin-bottom: 20px; }
+        table { border-collapse: collapse; width: 100%; margin-bottom: 20px; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background-color: #e9ecef; }
+        .best { background-color: #d4edda; font-weight: bold; }
+        .good { background-color: #d1ecf1; }
+        .neutral { background-color: #fff3cd; }
+        .recommendation { background-color: #e2e3e5; padding: 15px; border-radius: 5px; margin: 10px 0; }
+        .metric { display: inline-block; margin-right: 20px; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Comprehensive ML Inference Benchmark Report</h1>
+        <p>Complete performance evaluation across TVM Meta Schedule and multi-vendor frameworks</p>
+    </div>
+
+    <div class="section">
+        <h2>Executive Summary</h2>
+        <div class="summary">
+
+            <h3>Multi-Vendor Framework Comparison</h3>
+            <div class="metric"><strong>Frameworks Tested:</strong> 9</div>
+            <div class="metric"><strong>Top Performer:</strong> tensorrt (NVIDIA)</div>
+            <div class="metric"><strong>Best Throughput:</strong> 204.9 samples/sec</div>
+
+        </div>
+    </div>
+
+    <div class="section">
+        <h2>Recommendations</h2>
+        <div class="recommendation">Top performing framework: tensorrt (NVIDIA) with 204.9 samples/sec average throughput.</div>
+        <div class="recommendation">Most memory efficient: openvino_cpu (119.0 MB average). Consider for resource-constrained deployment.</div>
+    </div>
+
+    <div class="section">
+        <h2>Framework Performance Ranking</h2>
+        <table>
+            <tr>
+                <th>Rank</th>
+                <th>Framework</th>
+                <th>Vendor</th>
+                <th>Avg Runtime (ms)</th>
+                <th>Avg Throughput (samples/sec)</th>
+                <th>Avg Memory (MB)</th>
+                <th>Tests</th>
+            </tr>
+
+            <tr class="best">
+                <td>#1</td>
+                <td>tensorrt</td>
+                <td>NVIDIA</td>
+                <td>5.61</td>
+                <td>204.9</td>
+                <td>126.0</td>
+                <td>3</td>
+            </tr>
+
+            <tr class="good">
+                <td>#2</td>
+                <td>onnxruntime_cuda</td>
+                <td>Microsoft</td>
+                <td>8.42</td>
+                <td>136.6</td>
+                <td>168.0</td>
+                <td>3</td>
+            </tr>
+
+            <tr class="neutral">
+                <td>#3</td>
+                <td>pytorch_cuda</td>
+                <td>Meta</td>
+                <td>10.53</td>
+                <td>109.2</td>
+                <td>182.0</td>
+                <td>3</td>
+            </tr>
+
+            <tr class="">
+                <td>#4</td>
+                <td>tvm_llvm_tuned</td>
+                <td>Apache</td>
+                <td>19.67</td>
+                <td>58.5</td>
+                <td>126.0</td>
+                <td>3</td>
+            </tr>
+
+            <tr class="">
+                <td>#5</td>
+                <td>openvino_cpu</td>
+                <td>Intel</td>
+                <td>24.58</td>
+                <td>46.8</td>
+                <td>119.0</td>
+                <td>3</td>
+            </tr>
+
+            <tr class="">
+                <td>#6</td>
+                <td>tvm_llvm</td>
+                <td>Apache</td>
+                <td>28.12</td>
+                <td>40.9</td>
+                <td>133.0</td>
+                <td>3</td>
+            </tr>
+
+            <tr class="">
+                <td>#7</td>
+                <td>onnxruntime_cpu</td>
+                <td>Microsoft</td>
+                <td>31.62</td>
+                <td>36.4</td>
+                <td>140.0</td>
+                <td>3</td>
+            </tr>
+
+            <tr class="">
+                <td>#8</td>
+                <td>tensorflow_cpu</td>
+                <td>Google</td>
+                <td>33.76</td>
+                <td>34.1</td>
+                <td>147.0</td>
+                <td>3</td>
+            </tr>
+
+            <tr class="">
+                <td>#9</td>
+                <td>pytorch_cpu</td>
+                <td>Meta</td>
+                <td>36.59</td>
+                <td>31.4</td>
+                <td>154.0</td>
+                <td>3</td>
+            </tr>
+        </table>
+    </div>
+
+</body>
+</html>
